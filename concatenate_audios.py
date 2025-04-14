@@ -9,7 +9,7 @@ input_folder = r"./extracted_speakers"
 output_folder = os.path.join(input_folder, "processed_files")
 target_length = 6  # seconds
 min_length = 2  # minimum length
-sample_rate = 22050
+sample_rate = 16000
 
 os.makedirs(output_folder, exist_ok=True)
 
