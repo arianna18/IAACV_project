@@ -2,8 +2,8 @@ import os
 import re
 from pydub import AudioSegment
 
-input_folder = "S:\master poli\sem 2\iaaecv\extracted_speakers"
-output_folder = "S:\master poli\sem 2\iaaecv\concatenated_files"
+input_folder = "./extracted_speakers"
+output_folder = "./concatenated_files"
 os.makedirs(output_folder, exist_ok=True)
 
 # 6s - dimensiune aleasa empiric 
