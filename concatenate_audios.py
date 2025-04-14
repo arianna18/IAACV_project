@@ -1,88 +1,84 @@
 import os
-import re
+import glob
+import librosa
+import soundfile as sf
+import numpy as np
 from pydub import AudioSegment
 
-input_folder = "./extracted_speakers"
-output_folder = "./concatenated_files"
+input_folder = r"./extracted_speakers"
+output_folder = os.path.join(input_folder, "processed_files")
+target_length = 6  # seconds
+min_length = 2  # minimum length
+sample_rate = 22050
+
 os.makedirs(output_folder, exist_ok=True)
 
-# 6s - dimensiune aleasa empiric 
-MAX_LENGTH_MS = 6000  
+def process_audio_files():
+    audio_files = glob.glob(os.path.join(input_folder, "*.wav"))
+    file_groups = {}
+    
+    for file_path in audio_files:
+        filename = os.path.basename(file_path)
+        parts = filename.split('_')
+        
+        if len(parts) < 6 or parts[0] != "trial":
+            print(f"Skipping file with unexpected name format: {filename}")
+            continue
+            
+        verdict = parts[1]
+        index = parts[2]
+        speaker_id = parts[4]
+        
+        key = (speaker_id, verdict, index)
+        
+        if key not in file_groups:
+            file_groups[key] = []
+        file_groups[key].append(file_path)
+    
+    for key, files in file_groups.items():
+        speaker_id, verdict, index = key
+        combined_audio = np.array([], dtype=np.float32)
+        
+        files.sort()
+        for file_path in files:
+            try:
+                audio, sr = librosa.load(file_path, sr=sample_rate)
+                combined_audio = np.concatenate((combined_audio, audio))
+            except Exception as e:
+                print(f"Error loading {file_path}: {e}")
+                continue
+        
+        total_duration = len(combined_audio) / sample_rate
+        
+        if total_duration == 0:
+            print(f"No audio data for group {key}, skipping")
+            continue
 
-def split_audio_into_chunks(audio, max_length_ms=6000):
-    chunks = []
-    start = 0
-    while start < len(audio):
-        end = start + max_length_ms
-        chunk = audio[start:end]
-        chunks.append(chunk)
-        start = end
-    return chunks
+        samples_per_segment = target_length * sample_rate
+        num_segments = int(np.ceil(total_duration / target_length))
+        
+        for i in range(num_segments):
+            start_sample = i * samples_per_segment
+            end_sample = start_sample + samples_per_segment
+            
+            segment = combined_audio[start_sample:end_sample]
+            
+            segment_duration = len(segment) / sample_rate
+            
+            if segment_duration < min_length:
+                print(f"Skipping segment {i+1} for group {key} - duration {segment_duration:.2f}s < {min_length}s")
+                continue
+            
+            if len(segment) < samples_per_segment:
+                padding = samples_per_segment - len(segment)
+                segment = np.pad(segment, (0, padding), mode='constant')
+            
+            output_filename = f"trial_{verdict}_{index}_speaker{speaker_id}_segment{i+1:02d}.wav"
+            output_path = os.path.join(output_folder, output_filename)
+            
+            sf.write(output_path, segment, sample_rate)
+            print(f"Saved: {output_path}")
 
-def pad_audio(audio, target_length_ms=6000):
-    if len(audio) < target_length_ms:
-        silence_needed = target_length_ms - len(audio)
-        silence_segment = AudioSegment.silent(duration=silence_needed)
-        audio = audio + silence_segment
-    return audio
-
-all_files = [f for f in os.listdir(input_folder) if f.endswith(".wav")]
-
-groups = {}
-for filename in all_files:
-    name_parts = filename.split("_")
-
-    group_prefix = "_".join(name_parts[:5])
-    if group_prefix not in groups:
-        groups[group_prefix] = []
-    groups[group_prefix].append(filename)
-
-for group_prefix, filenames in groups.items():
-    filenames.sort()
-
-    segment_list = []  
-    current_segment = AudioSegment.empty() 
-
-    segment_counter = 1  
-
-    for filename in filenames:
-        file_path = os.path.join(input_folder, filename)
-        audio = AudioSegment.from_wav(file_path)
-
-        sub_chunks = split_audio_into_chunks(audio, MAX_LENGTH_MS)
-
-        for sc in sub_chunks:
-            if len(current_segment) + len(sc) <= MAX_LENGTH_MS:
-                current_segment += sc
-            else:
-                remainder_allowed = MAX_LENGTH_MS - len(current_segment)
-                if remainder_allowed > 0:
-                    current_segment += sc[:remainder_allowed]
-                    sc = sc[remainder_allowed:] 
-
-                out_name = f"{group_prefix}_segment{segment_counter:02d}.wav"
-                out_path = os.path.join(output_folder, out_name)
-                current_segment.export(out_path, format="wav")
-                segment_counter += 1
-
-                current_segment = sc
-
-                while len(current_segment) > MAX_LENGTH_MS:
-                    chunk_to_export = current_segment[:MAX_LENGTH_MS]
-                    current_segment = current_segment[MAX_LENGTH_MS:]
-
-                    out_name = f"{group_prefix}_segment{segment_counter:02d}.wav"
-                    out_path = os.path.join(output_folder, out_name)
-                    chunk_to_export.export(out_path, format="wav")
-                    segment_counter += 1
-
-    if len(current_segment) > 0:
-        current_segment = pad_audio(current_segment, MAX_LENGTH_MS)
-        out_name = f"{group_prefix}_segment{segment_counter:02d}.wav"
-        out_path = os.path.join(output_folder, out_name)
-        current_segment.export(out_path, format="wav")
-        segment_counter += 1
-
-    print(f"finished file : {group_prefix}")
-
-print("finished processing")
+if __name__ == "__main__":
+    process_audio_files()
+    print("Processing complete!")
