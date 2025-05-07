@@ -58,8 +58,9 @@ for filename in os.listdir(wav_dir):
             mfcc_feat = mfcc(x, Fs, Tw, Tstep, Nmfcc, Nfilt, Nfft, f_low, f_high,
                              appendEnergy=False, winfunc=sp.signal.windows.hamming)
             
-            # Calculate mean MFCC coefficients across all frames
+            # Calculate mean and std MFCC coefficients across all frames
             mean_mfcc = np.mean(mfcc_feat, axis=0)
+            std_mfcc = np.std(mfcc_feat, axis=0)
             
             # Normalize the mean MFCC features
             mean_mfcc -= np.mean(mean_mfcc)
@@ -73,12 +74,10 @@ for filename in os.listdir(wav_dir):
             # Replace unvoiced frame estimates (NaN) with zeros
             f0_est = np.where(np.isnan(f0), 0, f0)
             
-            # Calculate mean F0 (only considering voiced frames)
+            # Calculate mean and std F0 (only considering voiced frames)
             voiced_f0 = f0_est[f0_est > 0]
-            # mean_f0 = np.mean(voiced_f0) if len(voiced_f0) > 0 else 0
             mean_f0 = np.mean([i for i in voiced_f0 if i > 0]) if len(voiced_f0) > 0 else 0
-
-
+            std_f0 = np.std([i for i in voiced_f0 if i > 0]) if len(voiced_f0) > 0 else 0
 
             # Extract signal label from filename
             if "lie" in filename.lower():
@@ -88,8 +87,17 @@ for filename in os.listdir(wav_dir):
             else:
                 signal_label = "unknown"
 
-            # Create a row with 13 mean MFCC coefficients, mean F0, and the signal label
-            row = list(mean_mfcc) + [mean_f0, signal_label, filename]
+            # Extract gender from filename
+            if "male" in filename.lower():
+                gender = "male"
+            elif "female" in filename.lower():
+                gender = "female"
+            else:
+                gender = "unknown"
+
+            # Create a row with features and metadata
+            row = (list(mean_mfcc) + list(std_mfcc) + 
+                  [mean_f0, std_f0, signal_label, gender, filename])
             file_features.append(row)
             
         except Exception as e:
@@ -97,11 +105,13 @@ for filename in os.listdir(wav_dir):
             continue
 
 # Create column names for the DataFrame
-column_names = [f"MFCC_{i+1}" for i in range(Nmfcc)] + ["F0", "label", "filename"]
+column_names = ([f"MFCC_mean_{i+1}" for i in range(Nmfcc)] + 
+               [f"MFCC_std_{i+1}" for i in range(Nmfcc)] + 
+               ["F0_mean", "F0_std", "label", "gender", "filename"])
 
 # Create a Pandas DataFrame from the extracted features
 DATASET = pd.DataFrame(file_features, columns=column_names)
 print(DATASET.head())
 
 # Save the dataset to a CSV file
-DATASET.to_csv('./signal_features2.csv', index=False)
+DATASET.to_csv('./signal_features2_std_gender.csv', index=False)
