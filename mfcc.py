@@ -62,12 +62,6 @@ for filename in os.listdir(wav_dir):
             mean_mfcc = np.mean(mfcc_feat, axis=0)
             std_mfcc = np.std(mfcc_feat, axis=0)
             
-            # Normalize the mean MFCC features
-            mean_mfcc -= np.mean(mean_mfcc)
-            std_val = np.std(mean_mfcc)
-            if std_val > 0:
-                mean_mfcc /= std_val
-
             # Extract F0 values for all frames
             f0, voiced_flag, voiced_prob = librosa.pyin(x, fmin=f_min, fmax=f_max, sr=Fs,
                                                       frame_length=Nw, hop_length=Nstep)
@@ -88,10 +82,10 @@ for filename in os.listdir(wav_dir):
                 signal_label = "unknown"
 
             # Extract gender from filename
-            if "male" in filename.lower():
-                gender = "male"
-            elif "female" in filename.lower():
-                gender = "female"
+            if "M" in filename:
+                gender = "M"
+            elif "F" in filename:
+                gender = "F"
             else:
                 gender = "unknown"
 
@@ -114,4 +108,4 @@ DATASET = pd.DataFrame(file_features, columns=column_names)
 print(DATASET.head())
 
 # Save the dataset to a CSV file
-DATASET.to_csv('./signal_features2_std_gender.csv', index=False)
+DATASET.to_csv('./signal_features2_std_gender_no_mfcc_norm.csv', index=False)
