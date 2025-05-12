@@ -22,7 +22,7 @@ def extract_features(audio_path, output_dir):
     # Normalizare și conversie la mono dacă e stereo
     if len(audio.shape) > 1:
         audio = np.mean(audio, axis=1)
-    audio = audio / np.max(np.abs(audio))
+    # audio = audio / np.max(np.abs(audio))
     
     # Padding cu zerouri pentru ultimul cadru
     pad_length = frame_length - (len(audio) - frame_length) % frame_step
