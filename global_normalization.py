@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 # ------------ paths ---------------------------------------------------------
-INPUT_PATH  = "signal_features2_std_gender_mfcc13_per_file.csv"
+INPUT_PATH  = "signal_features_std_gender_mfcc13_per_file.csv"
 OUTPUT_PATH = "signal_features_global_normalized.csv"
 # ----------------------------------------------------------------------------
 
