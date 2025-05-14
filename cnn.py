@@ -108,7 +108,7 @@ def train_with_cross_validation(X, y, speaker_ids, conv_configs):
 # Main
 
 def main():
-    spectrogram_dir = r"D:\Iulia\ETTI\Master\Semestrul 2\IAACV_project\spectrograms"
+    spectrogram_dir = r"spectrograms"
     X, y, speaker_ids, genders = load_data_and_labels(spectrogram_dir)
     X = X / np.max(X)  # Normalizare la [0, 1]
 
