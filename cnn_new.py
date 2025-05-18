@@ -60,17 +60,21 @@ def load_data_and_labels(directory):
 # ============================
 # MODEL CNN
 # ============================
-def create_cnn_model(input_shape, filters):
+from tensorflow.keras import regularizers
+
+def create_cnn_model(input_shape, conv_filters, l2_lambda=0.001):
     model = models.Sequential()
     model.add(layers.InputLayer(input_shape=input_shape))
 
-    for f in filters:
-        model.add(layers.Conv2D(f, (3, 3), activation='relu', padding='same'))
-        model.add(layers.MaxPooling2D((2, 2)))
+    for filters in conv_filters:
+        model.add(layers.Conv2D(filters, (3, 3), padding='same', activation='relu',
+                                kernel_regularizer=regularizers.l2(l2_lambda)))
         model.add(layers.BatchNormalization())
+        model.add(layers.MaxPooling2D((2, 2)))
+        model.add(layers.Dropout(0.5))
 
     model.add(layers.Flatten())
-    model.add(layers.Dense(64, activation='relu'))
+    model.add(layers.Dense(128, activation='relu', kernel_regularizer=regularizers.l2(l2_lambda)))
     model.add(layers.Dropout(0.5))
     model.add(layers.Dense(1, activation='sigmoid'))
 
