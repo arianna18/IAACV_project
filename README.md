@@ -31,13 +31,18 @@ Acest proiect dezvoltă un sistem avansat de detectare a minciunii prin analiză
 - Management cod: Git
 
 ## Structura Proiectului
-IAACV_project/
-├── extracted_speakers/ # Date brute și preprocesate  
-├── processed_files/ # Date procesate pentru a avea lungime egală de 6 secunde
-├── spectrograms/ # Spectrograme salvate că .npy  si .png
-├── ... # Scripturi python detaliate mai jos
-├── requirements.txt # Dependințe
-└── README.md # Documentația proiectului
+
+- **IAACV_project/**
+  - **extracted_speakers/** - Date brute și preprocesate
+  - **processed_files/** - Audio procesat (6 secunde)
+  - **spectrograms/** - Spectrograme (`*.npy` și `*.png`)
+  - **scripts/**
+    - `preprocess.py` - Normalizare audio
+    - `train_model.py` - Configurare și antrenare
+    - `evaluate.py` - Metrici de evaluare
+    - `utils.py` - Helpers
+  - `requirements.txt` - Dependințe
+  - `README.md` - Ghidul proiectului
 
 ## Instalare și Utilizare
 
@@ -75,4 +80,4 @@ python3 cnn_new_new_new.py
 - Arianna Manolache - arianna.manolache@stud.etti.upb.ro
 
 **Profesor coordonator:**
-- Șerban Mihalache, PhD - șerban.mihalache@upb.ro
+- Șerban Mihalache, PhD - serban.mihalache@upb.ro
