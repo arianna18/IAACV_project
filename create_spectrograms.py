@@ -19,29 +19,26 @@ def extract_features(audio_path, output_dir):
     if sample_rate != fs:
         raise ValueError(f"Frecvența de eșantionare trebuie să fie {fs}Hz")
     
-    # # Normalizare și conversie la mono dacă e stereo
-    # if len(audio.shape) > 1:
-    #     audio = np.mean(audio, axis=1)
+    # Normalizare și conversie la mono dacă e stereo
+    if len(audio.shape) > 1:
+        audio = np.mean(audio, axis=1)
     # audio = audio / np.max(np.abs(audio))
     
     # Padding cu zerouri pentru ultimul cadru
-    pad_length = 12*fs - len(audio)
-    # pad_length = 12*fs
+    pad_length = frame_length - (len(audio) - frame_length) % frame_step
     audio = np.pad(audio, (0, pad_length), 'constant')
-
-    # Extragere cadre
-    ham_window = hamming(frame_length, sym=False)  # Create the Hamming window once
     
-    # Compute the STFT (spectrogram) using the same Hamming window
-    f, t, Zxx = stft(
-        audio,
-        fs=fs,
-        window=ham_window, 
-        nperseg=frame_length, 
-        noverlap=frame_overlap, 
-        nfft=nfft
-    )
-
+    # Extragere cadre
+    frames = []
+    for i in range(0, len(audio)-frame_length+1, frame_step):
+        frame = audio[i:i+frame_length]
+        frames.append(frame)
+    
+    # Calcul spectrogramă
+    window = hamming(frame_length, sym=False)
+    f, t, Zxx = stft(audio, fs=fs, window=window, nperseg=frame_length,
+                     noverlap=frame_overlap, nfft=nfft)
+    
     # Filtrăm doar frecvențele până la 8kHz (primele 257 puncte)
     freq_mask = f <= max_freq
     Zxx = Zxx[freq_mask, :]
@@ -52,6 +49,9 @@ def extract_features(audio_path, output_dir):
     
     # Salvăm rezultatele
     base_name = os.path.basename(audio_path).replace('.wav', '')
+    
+    # Salvăm cadrele brute
+    np.save(os.path.join(output_dir, f'{base_name}_frames.npy'), np.array(frames))
     
     # Salvăm spectrograma
     np.save(os.path.join(output_dir, f'{base_name}_spectrogram.npy'), Sxx)
@@ -66,6 +66,23 @@ def extract_features(audio_path, output_dir):
     plt.savefig(os.path.join(output_dir, f'{base_name}_spectrogram.png'))
     plt.close()
     
+    # Returnăm și metadate
+    metadata = {
+        'sample_rate': fs,
+        'frame_length': frame_length,
+        'frame_overlap': frame_overlap,
+        'frame_step': frame_step,
+        'nfft': nfft,
+        'max_freq': max_freq,
+        'original_length': len(audio),
+        'num_frames': len(frames),
+        'spectrogram_shape': Sxx.shape
+    }
+    
+    with open(os.path.join(output_dir, f'{base_name}_metadata.pkl'), 'wb') as f:
+        pickle.dump(metadata, f)
+    
+    return metadata
 
 def process_all_audio(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -82,10 +99,10 @@ def process_all_audio(input_dir, output_dir):
 if __name__ == "__main__":
     import argparse
     
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('input_dir', help='Directorul cu fișierele audio .wav')
-    # parser.add_argument('output_dir', help='Directorul pentru salvarea rezultatelor')
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('input_dir', help='Directorul cu fișierele audio .wav')
+    parser.add_argument('output_dir', help='Directorul pentru salvarea rezultatelor')
+    args = parser.parse_args()
     
-    process_all_audio("S:\master poli\sem 2\iaaecv\extracted_speakers","S:\master poli\sem 2\iaaecv\spectrograms")
+    process_all_audio(args.input_dir, args.output_dir)
     print("Procesarea completă!")

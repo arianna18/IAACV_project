@@ -59,19 +59,19 @@ for filename in os.listdir(wav_dir):
                              appendEnergy=False, winfunc=sp.signal.windows.hamming)
             
             # Calculate mean and std MFCC coefficients across all frames
-            mean_mfcc = np.mean(mfcc_feat, axis=0)
-            std_mfcc = np.std(mfcc_feat, axis=0)
-            
+            mean_mfcc = np.mean(mfcc_feat, axis=0)  # shape: (13,)
+            std_mfcc = np.std(mfcc_feat, axis=0)    # shape: (13,)
+
             # Extract F0 values for all frames
             f0, voiced_flag, voiced_prob = librosa.pyin(x, fmin=f_min, fmax=f_max, sr=Fs,
-                                                      frame_length=Nw, hop_length=Nstep)
+                                                        frame_length=Nw, hop_length=Nstep)
             # Replace unvoiced frame estimates (NaN) with zeros
             f0_est = np.where(np.isnan(f0), 0, f0)
-            
+
             # Calculate mean and std F0 (only considering voiced frames)
             voiced_f0 = f0_est[f0_est > 0]
-            mean_f0 = np.mean([i for i in voiced_f0 if i > 0]) if len(voiced_f0) > 0 else 0
-            std_f0 = np.std([i for i in voiced_f0 if i > 0]) if len(voiced_f0) > 0 else 0
+            mean_f0 = np.mean(voiced_f0) if len(voiced_f0) > 0 else 0
+            std_f0 = np.std(voiced_f0) if len(voiced_f0) > 0 else 0
 
             # Extract signal label from filename
             if "lie" in filename.lower():
@@ -91,7 +91,7 @@ for filename in os.listdir(wav_dir):
 
             # Create a row with features and metadata
             row = (list(mean_mfcc) + list(std_mfcc) + 
-                  [mean_f0, std_f0, signal_label, gender, filename])
+                   [mean_f0, std_f0, signal_label, gender, filename])
             file_features.append(row)
             
         except Exception as e:
@@ -100,12 +100,12 @@ for filename in os.listdir(wav_dir):
 
 # Create column names for the DataFrame
 column_names = ([f"MFCC_mean_{i+1}" for i in range(Nmfcc)] + 
-               [f"MFCC_std_{i+1}" for i in range(Nmfcc)] + 
-               ["F0_mean", "F0_std", "label", "gender", "filename"])
+                [f"MFCC_std_{i+1}" for i in range(Nmfcc)] + 
+                ["F0_mean", "F0_std", "label", "gender", "filename"])
 
 # Create a Pandas DataFrame from the extracted features
 DATASET = pd.DataFrame(file_features, columns=column_names)
 print(DATASET.head())
 
 # Save the dataset to a CSV file
-DATASET.to_csv('./signal_features2_std_gender_no_mfcc_norm.csv', index=False)
+DATASET.to_csv('./signal_features_std_gender_mfcc13_per_file.csv', index=False)
