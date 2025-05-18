@@ -1,2 +1,0 @@
- test evaluation
-best model: kernel=rbf, C=1.0, UA_train_avg=91.88000000000001, WA_train_avg=92.06, UA_val_avg=72.04, UA_test=73.5, WA_test=73.5
