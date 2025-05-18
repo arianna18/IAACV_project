@@ -15,7 +15,7 @@ SPECTROGRAM_DIR = "spectrograms"
 INPUT_SHAPE = (128, 128, 1)
 TEST_SPLIT = 0.1
 KFOLD_SPLITS = 5
-EPOCHS = 20
+EPOCHS = 100
 BATCH_SIZE = 32
 CNN_CONFIGS = [
     (16, 32, 64), (32, 64, 128), (8, 16, 32), (64, 64, 64), (32, 32, 32),
@@ -120,7 +120,7 @@ def main():
     for config in tqdm(CNN_CONFIGS, desc="Evaluare configuratii CNN"):
         X_trainval, y_trainval = build_dataset(speaker_data, train_val_speakers)
 
-        kfold = KFold(n_splits=KFOLD_SPLITS, shuffle=True, random_state=42)
+        kfold = StratifiedKFold(n_splits=KFOLD_SPLITS, shuffle=True, random_state=42)
         fold_accuracies = []
 
         for train_idx, val_idx in kfold.split(X_trainval, y_trainval):
@@ -128,7 +128,7 @@ def main():
             y_train, y_val = y_trainval[train_idx], y_trainval[val_idx]
 
             model = create_cnn_model(INPUT_SHAPE, config)
-            early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+            early_stop = callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
 
             model.fit(X_train, y_train, validation_data=(X_val, y_val),
                       epochs=EPOCHS, batch_size=BATCH_SIZE, verbose=0, callbacks=[early_stop])

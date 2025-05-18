@@ -1,127 +1,175 @@
 import os
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras import layers, models
-from tensorflow.keras.callbacks import EarlyStopping
-from sklearn.model_selection import StratifiedKFold
-import tensorflow.image as tf_image
-from collections import defaultdict
+import pandas as pd
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader, Subset
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from tqdm import tqdm
 
-# Incarca spectrogramele si etichetele
+# ==================== 1. Încărcarea datelor ====================
+def load_spectrogram_data(spectrograms_dir):
+    """Încarcă datele spectrogramelor și construiește un DataFrame"""
+    data = {'spectrogram': [], 'label': [], 'speaker_id': [], 'gender': []}
+    
+    for filename in os.listdir(spectrograms_dir):
+        if filename.endswith('.npy'):
+            parts = filename.split('_')
+            
+            # Extrage informații din numele fișierului
+            label = 0 if parts[1] == 'lie' else 1  # 0=minciună, 1=adevăr
+            speaker_id = parts[2]
+            gender = parts[3][7]  # 'F' sau 'M'
+            
+            # Încarcă spectrograma și ajustează dimensiunile
+            spectrogram = np.load(os.path.join(spectrograms_dir, filename))
+            if len(spectrogram.shape) == 2:  # Dacă e (H, W)
+                spectrogram = np.expand_dims(spectrogram, axis=0)  # Transformă în (1, H, W)
+            
+            data['spectrogram'].append(spectrogram)
+            data['label'].append(label)
+            data['speaker_id'].append(speaker_id)
+            data['gender'].append(gender)
+    
+    return pd.DataFrame(data)
 
-def load_data_and_labels(spectrogram_dir):
-    spectrograms = []
-    labels = []
-    speaker_ids = []
-    genders = []
+# Încărcare date
+spectrograms_dir = 'spectrograms'  # Schimbă cu calea ta
+df = load_spectrogram_data(spectrograms_dir)
 
-    for file in os.listdir(spectrogram_dir):
-        if file.endswith('_spectrogram.npy'):
-            spectrogram = np.load(os.path.join(spectrogram_dir, file))
-            if spectrogram.ndim == 2:
-                spectrogram = np.expand_dims(spectrogram, axis=-1)
-            spectrogram = tf_image.resize(spectrogram, [128, 128]).numpy()
-            if 'truth' in file:
-                label = 1
-            elif 'lie' in file:
-                label = 0
-            else:
-                continue
+# ==================== 2. Definirea modelului CNN ====================
+class SimpleCNN(nn.Module):
+    def __init__(self, in_ch, n_classes):
+        super(SimpleCNN, self).__init__()
+        self.conv_sequence = nn.Sequential(
+            nn.Conv2d(in_ch, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.global_pool = nn.AdaptiveMaxPool2d(1)
+        self.dense_sequence = nn.Sequential(
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, n_classes)
+        )
+    
+    def forward(self, x):
+        z = self.conv_sequence(x)
+        z = self.global_pool(z).view(z.shape[0], -1)
+        return self.dense_sequence(z)
 
-            base = file.split('_spectrogram')[0]
-            speaker_id = '_'.join(base.split('_')[1:3])  # ex: lie_005 sau truth_023
+# ==================== 3. Dataset și utilitare ====================
+class SincerityDataset(Dataset):
+    def __init__(self, dataframe):
+        self.data = dataframe
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        spectrogram = torch.tensor(self.data.iloc[idx]['spectrogram'], dtype=torch.float32)
+        label = torch.tensor(self.data.iloc[idx]['label'], dtype=torch.long)
+        return spectrogram, label
 
-            gender = 'F' if 'speakerF' in file else 'M'
+def combine_stratification_keys(df):
+    """Creează chei de stratificare combinate speaker + gen"""
+    if df['label'] == 0:
+        return 'lie' + "_" + df['speaker_id'].astype(str) + '_' + df['gender'].astype(str)
+    return 'truth' + "_" + df['speaker_id'].astype(str) + '_' + df['gender'].astype(str)
 
-            spectrograms.append(spectrogram)
-            labels.append(label)
-            speaker_ids.append(speaker_id)
-            genders.append(gender)
+# ==================== 4. Pregătire date ====================
+# Adaugă chei de stratificare
+df['strat_key'] = combine_stratification_keys(df)
 
-    spectrograms = np.array(spectrograms)
-    labels = np.array(labels)
-    speaker_ids = np.array(speaker_ids)
-    genders = np.array(genders)
+# Împarte în train/test (90%/10%)
+train_df, test_df = train_test_split(df, test_size=0.1, stratify=df['strat_key'], random_state=42)
 
-    print(f"Numar total de instante: {len(labels)}")
-    print(f"Numar total de vorbitori unici: {len(np.unique(speaker_ids))}")
-    print(f"Distributie genuri: F: {np.sum(genders == 'F')}, M: {np.sum(genders == 'M')}")
+# Reset strat key pentru cross-validation
+train_df['strat_key'] = combine_stratification_keys(train_df)
 
-    return spectrograms, labels, speaker_ids, genders
+# ==================== 5. Antrenare cu cross-validation ====================
+# Configurații
+batch_size = 64
+lr = 1e-3
+epochs = 5
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Folosim device: {device}")
 
-# Creeaza model CNN configurabil
+# Cross-validation setup
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+splits = list(skf.split(train_df, train_df['strat_key']))
 
-def create_cnn_model(input_shape, conv_filters):
-    model = models.Sequential()
-    model.add(layers.InputLayer(input_shape=input_shape))
+all_fold_accuracies = []
 
-    for filters in conv_filters:
-        model.add(layers.Conv2D(filters, (3, 3), padding='same', activation='relu'))
-        model.add(layers.BatchNormalization())
-        model.add(layers.MaxPooling2D((2, 2)))
-        model.add(layers.Dropout(0.3))
+for fold, (train_idx, val_idx) in enumerate(splits):
+    print(f"\n--- Fold {fold + 1} ---")
+    
+    # Inițializare model
+    model = SimpleCNN(in_ch=1, n_classes=2).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = nn.CrossEntropyLoss()
 
-    model.add(layers.Flatten())
-    model.add(layers.Dense(128, activation='relu'))
-    model.add(layers.Dropout(0.3))
-    model.add(layers.Dense(1, activation='sigmoid'))
+    # Pregătire dataloaders
+    fold_train = train_df.iloc[train_idx].reset_index(drop=True)
+    fold_val = train_df.iloc[val_idx].reset_index(drop=True)
 
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    return model
+    train_loader = DataLoader(SincerityDataset(fold_train), batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(SincerityDataset(fold_val), batch_size=batch_size)
 
-# 5-fold cross-validation stratificat pe speaker
+    # Antrenare
+    for epoch in range(epochs):
+        model.train()
+        train_loss, correct, total = 0, 0, 0
+        
+        for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
+            x, y = x.to(device), y.to(device)
+            
+            optimizer.zero_grad()
+            preds = model(x)
+            loss = loss_fn(preds, y)
+            loss.backward()
+            optimizer.step()
 
-def train_with_cross_validation(X, y, speaker_ids, conv_configs):
-    unique_speakers = np.unique(speaker_ids)
-    speaker_to_label = {spk: y[np.where(speaker_ids == spk)[0][0]] for spk in unique_speakers}
-    speaker_labels = np.array([speaker_to_label[spk] for spk in unique_speakers])
+            train_loss += loss.item() * x.size(0)
+            correct += (preds.argmax(1) == y).sum().item()
+            total += y.size(0)
 
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        acc = correct / total
+        print(f"Epoch {epoch+1}: Train Loss = {train_loss/total:.4f}, Accuracy = {acc:.4f}")
 
-    for conv_filters in conv_configs:
-        print(f"\nEvaluare model cu configuratia: {conv_filters}")
-        acc_scores = []
+    # Evaluare pe validare
+    model.eval()
+    correct, total = 0, 0
+    with torch.no_grad():
+        for x, y in val_loader:
+            x, y = x.to(device), y.to(device)
+            preds = model(x)
+            correct += (preds.argmax(1) == y).sum().item()
+            total += y.size(0)
+    
+    val_acc = correct / total
+    print(f"Fold {fold+1} Validation Accuracy: {val_acc:.4f}")
+    all_fold_accuracies.append(val_acc)
 
-        for train_index, val_index in skf.split(unique_speakers, speaker_labels):
-            train_speakers = unique_speakers[train_index]
-            val_speakers = unique_speakers[val_index]
+# ==================== 6. Evaluare pe test set ====================
+test_loader = DataLoader(SincerityDataset(test_df), batch_size=batch_size)
+model.eval()
+correct, total = 0, 0
+with torch.no_grad():
+    for x, y in test_loader:
+        x, y = x.to(device), y.to(device)
+        preds = model(x)
+        correct += (preds.argmax(1) == y).sum().item()
+        total += y.size(0)
 
-            train_mask = np.isin(speaker_ids, train_speakers)
-            val_mask = np.isin(speaker_ids, val_speakers)
-
-            X_train, y_train = X[train_mask], y[train_mask]
-            X_val, y_val = X[val_mask], y[val_mask]
-
-            model = create_cnn_model(X.shape[1:], conv_filters)
-
-            early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-            model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                      epochs=20, batch_size=8, verbose=0, callbacks=[early_stopping])
-
-            _, acc = model.evaluate(X_val, y_val, verbose=0)
-            acc_scores.append(acc)
-
-        mean_acc = np.mean(acc_scores)
-        print(f"Acc: {mean_acc:.4f}")
-
-
-# Main
-
-def main():
-    spectrogram_dir = r"spectrograms"
-    X, y, speaker_ids, genders = load_data_and_labels(spectrogram_dir)
-    X = X / np.max(X)  # Normalizare la [0, 1]
-
-    conv_configurations = [
-        [16, 32], [32, 64], [64, 128], [16, 32, 64], [32, 64, 128],
-        [32, 32, 64], [64, 64, 128], [16, 32, 32, 64], [32, 64, 64, 128],
-        [64, 64, 64, 128], [16, 32, 64, 128], [32, 64, 128, 128],
-        [32, 32, 64, 64], [16, 32, 32], [32, 32, 32], [32, 64, 64],
-        [64, 64, 64], [32, 32, 64, 64, 128], [16, 32, 64, 64, 128],
-        [16, 16, 32, 32, 64], [32, 64, 128, 256]
-    ]
-
-    train_with_cross_validation(X, y, speaker_ids, conv_configurations)
-
-if __name__ == "__main__":
-    main()
+test_acc = correct / total
+print(f"\nFinal Test Accuracy: {test_acc:.4f}")
+print(f"Cross-Validation Accuracies: {all_fold_accuracies}")
+print(f"Average CV Accuracy: {np.mean(all_fold_accuracies):.4f}")
